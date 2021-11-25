@@ -1,40 +1,63 @@
-version: '3'
+version: '3.8'
+volumes:
+  zksingle-ksingle_kafka1-data:
+  zksingle-ksingle_zoo1-data:
+  zksingle-ksingle_zoo1-log:
+
 services:
-  zookeeper:
-    image: confluentinc/cp-zookeeper:latest
-    networks:
-      - broker-kafka
+  zoo1:
+    image: confluentinc/cp-zookeeper:6.2.1
+    hostname: zoo1
+    container_name: zoo1
+    ports:
+      - "2181:2181"
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-
-  kafka:
-    image: confluentinc/cp-kafka:latest
-    networks:
-      - broker-kafka
-    depends_on:
-      - zookeeper
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_SERVERS: zoo1:2888:3888
+    volumes:
+      - type: volume
+        source: zksingle-ksingle_zoo1-data
+        target: /data
+      - type: volume
+        source: zksingle-ksingle_zoo1-log
+        target: /datalog
+  kafka1:
+    image: confluentinc/cp-kafka:6.2.1
+    hostname: kafka1
+    user: "appuser:appuser"
     ports:
-      - 9092:9092
+      - "9092:9092"
+      - "9999:9999"
     environment:
+      KAFKA_ADVERTISED_LISTENERS: LISTENER_DOCKER_INTERNAL://kafka1:19092,LISTENER_DOCKER_EXTERNAL://${DOCKER_HOST_IP:-127.0.0.1}:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: LISTENER_DOCKER_INTERNAL:PLAINTEXT,LISTENER_DOCKER_EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: LISTENER_DOCKER_INTERNAL
+      KAFKA_ZOOKEEPER_CONNECT: "zoo1:2181"
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LOG4J_LOGGERS: "kafka.controller=INFO,kafka.producer.async.DefaultEventHandler=INFO,state.change.logger=INFO"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-
-  kafdrop:
-    image: obsidiandynamics/kafdrop:latest
-    networks:
-      - broker-kafka
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_JMX_PORT: 9999
+      KAFKA_JMX_HOSTNAME: ${DOCKER_HOST_IP:-127.0.0.1}
+    volumes:
+      - type: volume
+        source: zksingle-ksingle_kafka1-data
+        target: /var/lib/kafka/data
     depends_on:
-      - kafka
+      - zoo1
+  api-getway:
+    build:
+      context: ./api-getway
+      dockerfile: Dockerfile
+    container_name: api-getway
     ports:
-      - 19000:9000
-    environment:
-      KAFKA_BROKERCONNECT: kafka:29092
+      - "3000:3000"
+    volumes:
+      - .:/api-getway
+    links:
+      - kafka1
+    depends_on:
+      - kafka1
 
-networks:
-  broker-kafka:
-    driver: bridge
